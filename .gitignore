@@ -42,3 +42,7 @@ Pods/
 
 # Archives
 *.zip
+
+# Misc
+.Rhistory
+.claude/
