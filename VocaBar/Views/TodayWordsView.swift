@@ -5,7 +5,6 @@ struct TodayWordsView: View {
     @Bindable var rotationService: WordRotationService
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Word.createdAt, order: .reverse) private var allWords: [Word]
-    @State private var todayWordIDs: [String] = []  // Stable list of today's words by english key
 
     var body: some View {
         VStack(spacing: 12) {
@@ -35,28 +34,47 @@ struct TodayWordsView: View {
                 .padding(.horizontal)
             }
 
-            // Current word highlight
-            if let current = rotationService.currentWord {
-                VStack(spacing: 6) {
+            // 100% congratulations
+            if progress >= 1.0 {
+                HStack(spacing: 6) {
+                    Text("🎉")
+                    Text("오늘의 목표 달성! 수고했어요!")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.green)
+                }
+                .padding(.vertical, 8)
+                .frame(maxWidth: .infinity)
+                .background(Color.green.opacity(0.1))
+                .cornerRadius(10)
+                .padding(.horizontal)
+            }
+
+            // Current word highlight — fixed height for 2 lines of example
+            VStack(spacing: 6) {
+                if let current = rotationService.currentWord {
                     Text(current.english)
                         .font(.title2.bold())
                     Text(current.meaning)
                         .font(.body)
                         .foregroundStyle(.secondary)
-                    if !current.example.isEmpty {
-                        Text(current.example)
-                            .font(.caption)
-                            .foregroundStyle(.tertiary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal)
-                    }
+                    Text(current.example.isEmpty ? " " : current.example)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                        .frame(height: 32)  // Fixed 2-line height
+                        .padding(.horizontal)
+                } else {
+                    Text("단어를 불러오는 중...")
+                        .font(.body)
+                        .foregroundStyle(.tertiary)
                 }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(Color.blue.opacity(0.08))
-                .cornerRadius(12)
-                .padding(.horizontal)
             }
+            .padding()
+            .frame(maxWidth: .infinity, minHeight: 110, maxHeight: 110)
+            .background(Color.blue.opacity(0.08))
+            .cornerRadius(12)
+            .padding(.horizontal)
 
             // Word list
             ScrollView {
@@ -80,21 +98,11 @@ struct TodayWordsView: View {
             .padding(.horizontal)
             .padding(.bottom, 8)
         }
-        .onAppear {
-            if todayWordIDs.isEmpty {
-                selectTodayWords()
-            }
-        }
     }
 
-    /// Today's words — stable list that doesn't change when words are marked learned
+    /// Today's words from the stable daily pool
     private var todayWords: [Word] {
-        if todayWordIDs.isEmpty {
-            // Fallback before selection
-            return Array(allWords.prefix(rotationService.dailyGoal))
-        }
-        // Return words in the order they were selected
-        return todayWordIDs.compactMap { id in
+        rotationService.todayWordIDs.compactMap { id in
             allWords.first(where: { $0.english == id })
         }
     }
@@ -106,11 +114,6 @@ struct TodayWordsView: View {
     private var progress: Double {
         guard !todayWords.isEmpty else { return 0 }
         return Double(learnedCount) / Double(todayWords.count)
-    }
-
-    private func selectTodayWords() {
-        let selected = WordRotationService.selectTodayWords(from: allWords, goal: rotationService.dailyGoal)
-        todayWordIDs = selected.map { $0.english }
     }
 
     private func toggleLearned(_ word: Word) {
@@ -133,22 +136,29 @@ struct WordRow: View {
                     Text(word.english)
                         .font(.system(.body, design: .rounded, weight: .medium))
                         .strikethrough(word.isLearned, color: .green)
-                    Text(word.meaning)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    HStack(spacing: 6) {
+                        Text(word.meaning)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if !word.folderList.isEmpty {
+                            Text(word.folderList.first ?? "")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.blue)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.blue.opacity(0.1))
+                                .cornerRadius(4)
+                        }
+                    }
                 }
                 Spacer()
+                // Quiz progress with color coding
                 if word.isLearned {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundStyle(.green)
                         .font(.system(size: 18))
-                } else if word.correctCount + word.wrongCount > 0 {
-                    Text("\(Int(word.accuracy))%")
-                        .font(.caption2)
-                        .foregroundStyle(.orange)
                 } else {
-                    Image(systemName: "circle")
-                        .foregroundStyle(.gray.opacity(0.3))
+                    quizProgressBadge
                 }
             }
             .padding(.vertical, 6)
@@ -157,6 +167,33 @@ struct WordRow: View {
             .cornerRadius(8)
         }
         .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var quizProgressBadge: some View {
+        let correct = min(word.correctCount, 3)
+        let attempted = word.correctCount + word.wrongCount
+        if attempted > 0 {
+            Text("\(correct)/3")
+                .font(.caption2.bold())
+                .foregroundStyle(quizProgressColor(correct))
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(quizProgressColor(correct).opacity(0.12))
+                .cornerRadius(4)
+        } else {
+            Image(systemName: "circle")
+                .foregroundStyle(.gray.opacity(0.3))
+        }
+    }
+
+    private func quizProgressColor(_ correct: Int) -> Color {
+        switch correct {
+        case 0: return .red
+        case 1: return .orange
+        case 2: return .yellow
+        default: return .green
+        }
     }
 }
 

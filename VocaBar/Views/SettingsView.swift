@@ -7,6 +7,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Word.createdAt) private var allWords: [Word]
     @State private var showResetAlert = false
+    @State private var newFolderName = ""
 
     var body: some View {
         ScrollView {
@@ -34,10 +35,28 @@ struct SettingsView: View {
                 .background(Color.gray.opacity(0.05))
                 .cornerRadius(10)
 
-                // Rotation interval
+                // Rotation interval — improved UI with preset buttons
                 VStack(alignment: .leading, spacing: 8) {
                     Text("단어 전환 간격")
                         .font(.subheadline.bold())
+
+                    HStack(spacing: 6) {
+                        ForEach([5, 10, 15, 30, 60], id: \.self) { sec in
+                            Button {
+                                rotationService.interval = TimeInterval(sec)
+                            } label: {
+                                Text("\(sec)초")
+                                    .font(.caption)
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(Int(rotationService.interval) == sec ? Color.blue : Color.gray.opacity(0.15))
+                                    .foregroundStyle(Int(rotationService.interval) == sec ? .white : .primary)
+                                    .cornerRadius(6)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+
                     HStack {
                         Text("\(Int(rotationService.interval))초")
                             .frame(width: 44, alignment: .leading)
@@ -63,6 +82,67 @@ struct SettingsView: View {
                         }
                     }
                     .pickerStyle(.segmented)
+                }
+                .padding()
+                .background(Color.gray.opacity(0.05))
+                .cornerRadius(10)
+
+                // Folder management
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("폴더 관리")
+                        .font(.subheadline.bold())
+
+                    // Active folder filter
+                    if !rotationService.allFolders.isEmpty {
+                        Text("활성 폴더 (선택한 폴더의 단어만 학습)")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+
+                        FlowLayout(spacing: 6) {
+                            ForEach(rotationService.allFolders, id: \.self) { folder in
+                                Button {
+                                    rotationService.toggleFolder(folder)
+                                    onSettingsChanged()
+                                } label: {
+                                    HStack(spacing: 4) {
+                                        Text(folder)
+                                            .font(.caption)
+                                        let count = allWords.filter { $0.folderList.contains(folder) }.count
+                                        Text("(\(count))")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    .padding(.horizontal, 8)
+                                    .padding(.vertical, 4)
+                                    .background(rotationService.activeFolders.contains(folder) ? Color.blue : Color.gray.opacity(0.15))
+                                    .foregroundStyle(rotationService.activeFolders.contains(folder) ? .white : .primary)
+                                    .cornerRadius(6)
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+
+                        if rotationService.activeFolders.isEmpty {
+                            Text("폴더 미선택 시 전체 단어에서 학습합니다")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
+
+                    // Add new folder
+                    HStack {
+                        TextField("새 폴더 이름", text: $newFolderName)
+                            .textFieldStyle(.roundedBorder)
+                            .font(.caption)
+                        Button {
+                            rotationService.addFolder(newFolderName)
+                            newFolderName = ""
+                        } label: {
+                            Image(systemName: "plus.circle.fill")
+                        }
+                        .disabled(newFolderName.trimmingCharacters(in: .whitespaces).isEmpty)
+                        .buttonStyle(.plain)
+                    }
                 }
                 .padding()
                 .background(Color.gray.opacity(0.05))

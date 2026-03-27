@@ -8,7 +8,7 @@ struct SampleWord: Codable {
 }
 
 struct SampleDataService {
-    private static let currentDataVersion = 2  // Increment when toefl_words.json changes
+    private static let currentDataVersion = 3  // v1.4: adds "TOEFL" folder to sample words
 
     @MainActor
     static func loadIfNeeded(modelContainer: ModelContainer) {
@@ -62,7 +62,8 @@ struct SampleDataService {
                 english: sample.english,
                 meaning: sample.meaning,
                 example: sample.example,
-                source: .sample
+                source: .sample,
+                folders: "TOEFL"
             )
             context.insert(word)
         }
@@ -85,7 +86,7 @@ struct SampleDataService {
         ]
 
         for (eng, kor, ex) in fallback {
-            let word = Word(english: eng, meaning: kor, example: ex, source: .sample)
+            let word = Word(english: eng, meaning: kor, example: ex, source: .sample, folders: "TOEFL")
             context.insert(word)
         }
         try? context.save()
