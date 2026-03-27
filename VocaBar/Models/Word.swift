@@ -19,6 +19,8 @@ final class Word {
     var wrongCount: Int
     var createdAt: Date
     var lastStudiedAt: Date?
+    /// Comma-separated folder names (e.g. "TOEFL,My Words")
+    var folders: String
 
     init(
         english: String,
@@ -29,7 +31,8 @@ final class Word {
         correctCount: Int = 0,
         wrongCount: Int = 0,
         createdAt: Date = .now,
-        lastStudiedAt: Date? = nil
+        lastStudiedAt: Date? = nil,
+        folders: String = ""
     ) {
         self.english = english
         self.meaning = meaning
@@ -40,11 +43,31 @@ final class Word {
         self.wrongCount = wrongCount
         self.createdAt = createdAt
         self.lastStudiedAt = lastStudiedAt
+        self.folders = folders
     }
 
     var accuracy: Double {
         let total = correctCount + wrongCount
         guard total > 0 else { return 0 }
         return Double(correctCount) / Double(total) * 100
+    }
+
+    var folderList: [String] {
+        get { folders.isEmpty ? [] : folders.components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) } }
+        set { folders = newValue.joined(separator: ",") }
+    }
+
+    func belongsToAny(_ selectedFolders: Set<String>) -> Bool {
+        if selectedFolders.isEmpty { return true }
+        if selectedFolders.contains("전체") { return true }
+        return !Set(folderList).isDisjoint(with: selectedFolders)
+    }
+
+    /// Quiz progress: how many correct out of 3 needed
+    var quizProgress: String {
+        let needed = 3
+        if isLearned { return "완료" }
+        if correctCount + wrongCount == 0 { return "" }
+        return "\(min(correctCount, needed))/\(needed)"
     }
 }

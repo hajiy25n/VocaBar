@@ -59,37 +59,27 @@ struct ContentView: View {
                 case .today:
                     TodayWordsView(rotationService: rotationService)
                 case .quiz:
-                    QuizView()
+                    QuizView(rotationService: rotationService)
                 case .add:
-                    AddWordView()
+                    AddWordView(rotationService: rotationService)
                 case .settings:
                     SettingsView(rotationService: rotationService, onSettingsChanged: {
-                        forceUpdateRotation()
+                        rotationService.resliceTodayWords(from: allWords)
                     })
                 }
             }
             .frame(maxHeight: .infinity)
         }
         .onChange(of: allWords.count) {
-            updateRotation()
+            rotationService.selectDailyPool(from: allWords)
         }
         .onAppear {
             if !hasLoadedOnce {
                 hasLoadedOnce = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                    updateRotation()
+                    rotationService.selectDailyPool(from: allWords)
                 }
             }
         }
-    }
-
-    private func updateRotation() {
-        let selected = WordRotationService.selectTodayWords(from: allWords, goal: rotationService.dailyGoal)
-        rotationService.updateWords(selected)
-    }
-
-    private func forceUpdateRotation() {
-        let selected = WordRotationService.selectTodayWords(from: allWords, goal: rotationService.dailyGoal)
-        rotationService.forceReload(selected)
     }
 }

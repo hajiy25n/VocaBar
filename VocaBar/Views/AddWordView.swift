@@ -17,6 +17,7 @@ enum AddMode: String, CaseIterable {
 }
 
 struct AddWordView: View {
+    @Bindable var rotationService: WordRotationService
     @Environment(\.modelContext) private var modelContext
     @State private var addMode: AddMode = .manual
 
@@ -24,15 +25,18 @@ struct AddWordView: View {
     @State private var english = ""
     @State private var meaning = ""
     @State private var example = ""
+    @State private var selectedFolders: Set<String> = []
     @State private var showSuccess = false
 
     // OCR
     @State private var ocrResults: [(english: String, meaning: String)] = []
     @State private var isProcessingOCR = false
+    @State private var ocrFolders: Set<String> = []
 
     // CSV
     @State private var csvResults: [(english: String, meaning: String)] = []
     @State private var csvFileName = ""
+    @State private var csvFolders: Set<String> = []
 
     var body: some View {
         VStack(spacing: 12) {
@@ -57,6 +61,41 @@ struct AddWordView: View {
             }
         }
         .padding(.top, 8)
+    }
+
+    // MARK: - Multi-select Folder Picker
+    private func folderMultiPicker(selection: Binding<Set<String>>) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("폴더 (다중 선택 가능)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            if rotationService.allFolders.isEmpty {
+                Text("설정에서 폴더를 먼저 추가하세요")
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+            } else {
+                FlowLayout(spacing: 6) {
+                    ForEach(rotationService.allFolders, id: \.self) { folder in
+                        Button {
+                            if selection.wrappedValue.contains(folder) {
+                                selection.wrappedValue.remove(folder)
+                            } else {
+                                selection.wrappedValue.insert(folder)
+                            }
+                        } label: {
+                            Text(folder)
+                                .font(.caption)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(selection.wrappedValue.contains(folder) ? Color.blue : Color.gray.opacity(0.15))
+                                .foregroundStyle(selection.wrappedValue.contains(folder) ? .white : .primary)
+                                .cornerRadius(6)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Manual Input
@@ -85,6 +124,8 @@ struct AddWordView: View {
                 TextField("예: The aberrant behavior concerned the researchers.", text: $example)
                     .textFieldStyle(.roundedBorder)
             }
+
+            folderMultiPicker(selection: $selectedFolders)
 
             Button {
                 addWord()
@@ -160,6 +201,9 @@ struct AddWordView: View {
             }
             .padding(.horizontal)
 
+            folderMultiPicker(selection: $ocrFolders)
+                .padding(.horizontal)
+
             ForEach(Array(ocrResults.enumerated()), id: \.offset) { _, result in
                 HStack {
                     Text(result.english)
@@ -230,6 +274,9 @@ struct AddWordView: View {
                     }
                     .padding(.horizontal)
 
+                    folderMultiPicker(selection: $csvFolders)
+                        .padding(.horizontal)
+
                     ForEach(Array(csvResults.prefix(20).enumerated()), id: \.offset) { _, result in
                         HStack {
                             Text(result.english).font(.body.bold())
@@ -262,11 +309,13 @@ struct AddWordView: View {
 
     // MARK: - Actions
     private func addWord() {
+        let foldersString = selectedFolders.sorted().joined(separator: ",")
         let word = Word(
             english: english.trimmingCharacters(in: .whitespaces),
             meaning: meaning.trimmingCharacters(in: .whitespaces),
             example: example.trimmingCharacters(in: .whitespaces),
-            source: .manual
+            source: .manual,
+            folders: foldersString
         )
         modelContext.insert(word)
         try? modelContext.save()
@@ -278,7 +327,6 @@ struct AddWordView: View {
     }
 
     private func selectImage() {
-        // Deactivate the app's key window so NSOpenPanel can get focus
         NSApp.keyWindow?.resignKey()
 
         DispatchQueue.main.async {
@@ -288,7 +336,7 @@ struct AddWordView: View {
             panel.canChooseDirectories = false
             panel.canChooseFiles = true
             panel.title = "단어가 포함된 이미지를 선택하세요"
-            panel.level = .floating  // Ensure panel appears on top
+            panel.level = .floating
 
             let response = panel.runModal()
             if response == .OK, let url = panel.url {
@@ -322,11 +370,13 @@ struct AddWordView: View {
     }
 
     private func addOCRWords() {
+        let foldersString = ocrFolders.sorted().joined(separator: ",")
         for result in ocrResults {
             let word = Word(
                 english: result.english,
                 meaning: result.meaning.isEmpty ? "뜻을 입력하세요" : result.meaning,
-                source: .ocr
+                source: .ocr,
+                folders: foldersString
             )
             modelContext.insert(word)
         }
@@ -335,7 +385,6 @@ struct AddWordView: View {
     }
 
     private func selectCSV() {
-        // Deactivate the app's key window so NSOpenPanel can get focus
         NSApp.keyWindow?.resignKey()
 
         DispatchQueue.main.async {
@@ -360,7 +409,6 @@ struct AddWordView: View {
     }
 
     private func parseCSV(url: URL) {
-        // Start accessing security-scoped resource for sandboxed apps
         let accessing = url.startAccessingSecurityScopedResource()
         defer {
             if accessing { url.stopAccessingSecurityScopedResource() }
@@ -376,13 +424,11 @@ struct AddWordView: View {
             let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !trimmed.isEmpty else { continue }
 
-            // Skip header row if it looks like one
             let lower = trimmed.lowercased()
             if lower.hasPrefix("english") || lower.hasPrefix("word") || lower.hasPrefix("단어") {
                 continue
             }
 
-            // Try comma, tab, semicolon
             let delimiters: [Character] = [",", "\t", ";"]
             for delim in delimiters {
                 let parts = trimmed.split(separator: delim).map { String($0).trimmingCharacters(in: .whitespaces) }
@@ -397,16 +443,57 @@ struct AddWordView: View {
     }
 
     private func addCSVWords() {
+        let foldersString = csvFolders.sorted().joined(separator: ",")
         for result in csvResults {
             let word = Word(
                 english: result.english,
                 meaning: result.meaning,
-                source: .csv
+                source: .csv,
+                folders: foldersString
             )
             modelContext.insert(word)
         }
         try? modelContext.save()
         csvResults = []
         csvFileName = ""
+    }
+}
+
+// FlowLayout for folder chips (shared with SettingsView)
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let result = layout(proposal: proposal, subviews: subviews)
+        return result.size
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        let result = layout(proposal: proposal, subviews: subviews)
+        for (index, position) in result.positions.enumerated() {
+            subviews[index].place(at: CGPoint(x: bounds.minX + position.x, y: bounds.minY + position.y), proposal: .unspecified)
+        }
+    }
+
+    private func layout(proposal: ProposedViewSize, subviews: Subviews) -> (size: CGSize, positions: [CGPoint]) {
+        let maxWidth = proposal.width ?? .infinity
+        var positions: [CGPoint] = []
+        var x: CGFloat = 0
+        var y: CGFloat = 0
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            if x + size.width > maxWidth && x > 0 {
+                x = 0
+                y += rowHeight + spacing
+                rowHeight = 0
+            }
+            positions.append(CGPoint(x: x, y: y))
+            rowHeight = max(rowHeight, size.height)
+            x += size.width + spacing
+        }
+
+        return (CGSize(width: maxWidth, height: y + rowHeight), positions)
     }
 }

@@ -2,6 +2,7 @@ import SwiftUI
 import SwiftData
 
 struct QuizView: View {
+    @Bindable var rotationService: WordRotationService
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \Word.createdAt) private var allWords: [Word]
 
@@ -14,6 +15,14 @@ struct QuizView: View {
     @State private var wrongTotal = 0
     @State private var quizFinished = false
     @State private var quizStarted = false
+    @State private var autoAdvanceTask: Task<Void, Never>?
+
+    /// Today's words derived from rotation service
+    private var todayWords: [Word] {
+        rotationService.todayWordIDs.compactMap { id in
+            allWords.first { $0.english == id }
+        }
+    }
 
     var body: some View {
         ScrollView {
@@ -40,12 +49,12 @@ struct QuizView: View {
             Text("단어 퀴즈")
                 .font(.title2.bold())
 
-            Text("4지선다로 단어 뜻을 맞춰보세요!")
+            Text("오늘의 단어에서 4지선다로 뜻을 맞춰보세요!\n3회 정답 시 자동으로 학습 완료 처리됩니다.")
                 .font(.body)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
 
-            Text("전체 단어: \(allWords.count)개")
+            Text("오늘의 단어: \(todayWords.count)개")
                 .font(.caption)
                 .foregroundStyle(.tertiary)
 
@@ -58,10 +67,14 @@ struct QuizView: View {
                     .padding(.vertical, 10)
             }
             .buttonStyle(.borderedProminent)
-            .disabled(allWords.count < 4)
+            .disabled(todayWords.isEmpty || allWords.count < 4)
 
-            if allWords.count < 4 {
-                Text("퀴즈를 시작하려면 최소 4개의 단어가 필요합니다")
+            if todayWords.isEmpty {
+                Text("오늘의 단어가 없습니다")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            } else if allWords.count < 4 {
+                Text("퀴즈를 시작하려면 전체 단어가 최소 4개 필요합니다")
                     .font(.caption)
                     .foregroundStyle(.red)
             }
@@ -137,15 +150,23 @@ struct QuizView: View {
                 }
             }
 
+            // Feedback
             if selectedAnswer != nil {
-                Button {
-                    nextQuestion()
-                } label: {
-                    Text(currentIndex < quizWords.count - 1 ? "다음 문제" : "결과 보기")
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
+                HStack {
+                    if isCorrect == true {
+                        Label("정답!", systemImage: "hand.thumbsup.fill")
+                            .foregroundStyle(.green)
+                            .font(.caption.bold())
+                    } else {
+                        Label("오답! 정답: \(quizWords[currentIndex].meaning)", systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.red)
+                            .font(.caption.bold())
+                    }
+                    Spacer()
+                    Text("자동 넘김...")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
                 }
-                .buttonStyle(.borderedProminent)
             }
         }
     }
@@ -202,8 +223,22 @@ struct QuizView: View {
 
     // MARK: - Logic
     private func startQuiz() {
-        let count = min(10, allWords.count)
-        quizWords = Array(allWords.shuffled().prefix(count))
+        autoAdvanceTask?.cancel()
+        let today = todayWords
+
+        // Build quiz: if today has fewer than 10 words, repeat to fill 10
+        var pool: [Word] = []
+        if today.count >= 10 {
+            pool = Array(today.shuffled().prefix(10))
+        } else if !today.isEmpty {
+            // Repeat today's words to reach 10
+            while pool.count < 10 {
+                pool.append(contentsOf: today.shuffled())
+            }
+            pool = Array(pool.prefix(10))
+        }
+
+        quizWords = pool
         currentIndex = 0
         correctTotal = 0
         wrongTotal = 0
@@ -217,7 +252,6 @@ struct QuizView: View {
     private func generateOptions() {
         guard currentIndex < quizWords.count else { return }
         let correct = quizWords[currentIndex].meaning
-        // Get unique wrong answers, shuffled
         var wrongPool = Array(Set(
             allWords
                 .filter { $0.meaning != correct }
@@ -226,7 +260,6 @@ struct QuizView: View {
 
         var wrongAnswers = Array(wrongPool.prefix(3))
 
-        // Ensure we have 3 wrong answers
         while wrongAnswers.count < 3 {
             wrongAnswers.append("(보기 \(wrongAnswers.count + 1))")
         }
@@ -251,9 +284,19 @@ struct QuizView: View {
         }
         word.lastStudiedAt = .now
         try? modelContext.save()
+
+        // Auto-advance: 1s for correct, 2s for wrong
+        let delay: UInt64 = (isCorrect == true) ? 1_000_000_000 : 2_000_000_000
+        autoAdvanceTask?.cancel()
+        autoAdvanceTask = Task { @MainActor in
+            try? await Task.sleep(nanoseconds: delay)
+            guard !Task.isCancelled else { return }
+            nextQuestion()
+        }
     }
 
     private func nextQuestion() {
+        autoAdvanceTask?.cancel()
         if currentIndex < quizWords.count - 1 {
             currentIndex += 1
             selectedAnswer = nil
